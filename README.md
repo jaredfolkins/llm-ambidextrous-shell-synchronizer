@@ -20,12 +20,12 @@ This project is released by [Jared Folkins](https://x.com/jf0lkins) under the [M
 - **Terminal**: Retrieve all outputs for a session.
 - **Ticket**: Retrieve a specific ticket from a session.
 - **Documentation**: Serves a dynamically rendered markdown `README.md`.
-- **Ambidextrous**: Defaults to synchronous requests, but can be configured to be asynchronous via environment variable.
+- **Ambidextrous**: Can be configured to be asynchronous/synchronous via the environment variable `SYNC`.
 
 ## Requirements
 
 - [Go 1.21+](https://golang.org/dl/) (earlier versions may work, but this was tested with 1.18+).
-- A `.env` file containing environment variables.
+- A `.env` file containing environment variables (example found '.example.env`).
 - (Optional) [Caddy](https://caddyserver.com) as a reverse proxy.
 
 ## Installation and Setup
