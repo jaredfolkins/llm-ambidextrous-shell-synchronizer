@@ -1,0 +1,25 @@
+[Unit]
+Description=llmass - LLM Ambidextrous Shell Synchronizer
+After=network-online.target
+Wants=network-online.target systemd-networkd-wait-online.service
+
+[Service]
+Restart=on-failure
+
+User=root
+Group=root
+
+Environment=HOME=/root
+WorkingDirectory=/root/llm-ambidextrous-shell-synchronizer
+ExecStart=/bin/bash -c "/root/llm-ambidextrous-shell-synchronizer/llmass"
+ExecReload=/bin/kill -USR1 $MAINPID
+
+LimitNOFILE=1048576
+LimitNPROC=64
+ReadWriteDirectories=/root/llm-ambidextrous-shell-synchronizer
+
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
