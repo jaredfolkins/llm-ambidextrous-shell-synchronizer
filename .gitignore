@@ -1,0 +1,7 @@
+sessions/*
+tmp/*
+.env
+.idea/*
+prompts/*
+.CONTEXT.md
+llmass
