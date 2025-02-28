@@ -93,26 +93,60 @@ SESSIONS_DIR=sessions
 - **Method**: `GET`
 - **Query Parameters**:
   - `hash`: Must match the `HASH` from your `.env`.
-  - `cmd`: is a url encoded shell command to execute, e.g., `ls -lah`.
-  - `session` A directory/session name
+  - `cmd`: A URL encoded shell command to execute, e.g., `ls -lah`.
+  - `b64cmd`: A base64-encoded shell command (alternative to `cmd`).
+  - `session`: A directory/session name
 
-**Example**:
+### Command Parameter Options
+
+The `/shell` endpoint supports two methods for specifying commands:
+
+#### 1. Standard Command Parameter (`cmd`)
+
+```
+/shell?hash=YOUR_HASH&session=SESSION_NAME&cmd=ls+-la
+```
+
+- Uses URL encoding for special characters
+- Simple for basic commands
+
+
+#### 2. Base64-encoded Command Parameter (`b64cmd`)
+
+```
+/shell?hash=YOUR_HASH&session=SESSION_NAME&b64cmd=bHMgLWxhCg==
+```
+
+- Accepts commands encoded in base64 format
+- Ideal for complex commands with special characters
+- Supports multi-line commands without URL encoding issues
+- Helps prevent problems with shell escaping and quotation marks
+
+**Note**: You must provide either `cmd` OR `b64cmd` parameter (not both).
+
+#### Examples 
+
+**Encoding a multi-line command:**
+
 ```bash
-curl -G "{FQDN}/shell" --data-urlencode "cmd=ls -lah" --data-urlencode "hash=REPLACE_ME_WITH_THE_HASH_YOU_WERE_PROVIDED"
+# Original multi-line command
+cat <<EOF > test.sh
+#!/bin/bash
+echo "Hello World"
+EOF
+
+# Base64 encoded version
+# Y2F0IDw8RU9GID4gdGVzdC5zaAojIS9iaW4vYmFzaAplY2hvICJIZWxsbyBXb3JsZCIKRU9G
 ```
 
-A **successful** response returns:
-```
-{
-  "ticket":REMEMBER_THIS_ID_TO_MANAGE_SEQUENTIAL_REQUESTS_DURING_THIS_SESSION,
-  "session":"REMEMBER_SESSION_TO_MAINTAIN_CONTEXT"
-}
-```
+**Examples**:
+```bash
+# Using URL-encoded command
+curl -G "{FQDN}/shell" --data-urlencode "cmd=ls -lah" --data-urlencode "hash=REPLACE_ME_WITH_THE_HASH_YOU_WERE_PROVIDED" --data-urlencode "session=mysession"
 
-The **output** of the command is:
-
-- saved in a new named `<int>.ticket`
-- the file is inside `SESSIONS_DIR/<sessionname>/`
+# Using base64-encoded command
+curl -G "{FQDN}/shell" --data-urlencode "b64cmd=bHMgLWxhaAo=" --data-urlencode "hash=REPLACE_ME_WITH_THE_HASH_YOU_WERE_PROVIDED" --data-urlencode "session=mysession"
+```
 
 ## Status
 

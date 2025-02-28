@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"encoding/base64"
 	"sort"
 
 	//"encoding/json"
@@ -196,15 +197,6 @@ func getNextTicket(sessionFolder string) (int, error) {
 	return maxTicket + 1, nil
 }
 
-type JsonErr struct {
-	Error string `json:"error"`
-}
-
-type JsonMsg struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
-}
-
 func writePlainMessage(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, "%s\n", msg)
@@ -288,14 +280,27 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Get query parameters
 	cmdParam := r.URL.Query().Get("cmd")
-	if cmdParam == "" {
-		writePlainMessage(w, errCmdMessage)
+	b64CmdParam := r.URL.Query().Get("b64cmd")
+
+	if cmdParam == "" && b64CmdParam == "" {
+		writePlainMessage(w, "Invalid or missing 'cmd' or 'b64cmd' parameter")
 		return
 	}
 
 	// Determine the command to execute
 	var inputCmd string
-	if cmdParam != "" {
+	if b64CmdParam != "" {
+		// Decode base64 command if provided
+		decodedBytes, err := base64.StdEncoding.DecodeString(b64CmdParam)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to decode base64 command: %v", err)
+			logger.Printf(msg)
+			writePlainMessage(w, msg)
+			return
+		}
+		inputCmd = string(decodedBytes)
+	} else {
+		// Otherwise use regular cmd parameter
 		var erru error
 		inputCmd, erru = url.QueryUnescape(cmdParam)
 		if erru != nil {
