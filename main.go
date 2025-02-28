@@ -207,7 +207,7 @@ type JsonMsg struct {
 
 func writePlainMessage(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "text/plain")
-	http.Error(w, msg, http.StatusOK)
+	fmt.Fprintf(w, "%s\n", msg)
 }
 
 func callbackHandler(w http.ResponseWriter, r *http.Request) {
