@@ -84,7 +84,7 @@ func tm(h http.HandlerFunc) http.HandlerFunc {
 		case <-ctx.Done():
 			w.WriteHeader(http.StatusGatewayTimeout)
 			msg := "Request timeout exceeded"
-			writeJsonError(w, msg)
+			writePlainMessage(w, msg)
 			return
 		}
 	}
@@ -128,6 +128,12 @@ func loadEnv() {
 	err := godotenv.Load()
 	if err != nil {
 		logger.Fatalf("Error loading .env file: %v", err)
+	}
+
+	syncValue := os.Getenv("SYNC")
+	if syncValue == "" {
+		logger.Printf("SYNC not set in .env file, defaulting to false")
+		os.Setenv("SYNC", "false")
 	}
 
 	hashPassword = os.Getenv("HASH")
@@ -197,53 +203,36 @@ type JsonMsg struct {
 	Message string `json:"message"`
 }
 
-func writeJsonMsg(w http.ResponseWriter, status, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	resp, err := json.Marshal(&JsonMsg{Status: status, Message: msg})
-	if err != nil {
-		logger.Printf("Failed to marshal JSON response: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to marshal JSON response: %v", err), http.StatusInternalServerError)
-		return
-	}
-	http.Error(w, string(resp), http.StatusOK)
-}
-
-func writeJsonError(w http.ResponseWriter, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	resp, err := json.Marshal(&JsonErr{Error: msg})
-	if err != nil {
-		logger.Printf("Failed to marshal JSON response: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to marshal JSON response: %v", err), http.StatusInternalServerError)
-		return
-	}
-	http.Error(w, string(resp), http.StatusMethodNotAllowed)
+func writePlainMessage(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "text/plain")
+	http.Error(w, msg, http.StatusOK)
 }
 
 func callbackHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "text/plain")
 	if r.Method != http.MethodGet {
-		writeJsonError(w, errMethodMessage)
+		writePlainMessage(w, errMethodMessage)
 		return
 	}
 
 	// Validate the hash parameter
 	ticket, err := strconv.Atoi(r.URL.Query().Get("ticket"))
 	if err != nil {
-		writeJsonError(w, errTicketMessage)
+		writePlainMessage(w, errTicketMessage)
 		return
 	}
 
 	// Validate the hash parameter
 	hashParam := r.URL.Query().Get("hash")
 	if subtle.ConstantTimeCompare([]byte(hashParam), []byte(hashPassword)) != 1 {
-		writeJsonError(w, errHashMessage)
+		writePlainMessage(w, errHashMessage)
 		return
 	}
 
 	// Check if session is provided in query parameters
 	session := r.URL.Query().Get("session")
 	if session == "" {
-		writeJsonError(w, errSessionMessage)
+		writePlainMessage(w, errSessionMessage)
 		return
 	}
 
@@ -252,7 +241,7 @@ func callbackHandler(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(sessionFolder); os.IsNotExist(err) {
 		msg := fmt.Sprintf("Session %s does not exist", sessionFolder)
 		logger.Printf("Session not found!  %s: %v", sessionFolder, err)
-		writeJsonError(w, msg)
+		writePlainMessage(w, msg)
 		return
 	}
 
@@ -260,45 +249,45 @@ func callbackHandler(w http.ResponseWriter, r *http.Request) {
 	file, err := os.ReadFile(filepath.Join(sessionsDir, session, fmt.Sprintf("%02d.ticket", ticket)))
 	if err != nil {
 		msg := fmt.Sprintf("Failed to read ticket file: %v", err)
-		writeJsonError(w, msg)
+		writePlainMessage(w, msg)
 		return
 	}
 
 	if len(file) == 0 {
-		msg := fmt.Sprintf("No output for ticket %d yet. Refresh the page after waiting a bit!", ticket)
-		writeJsonMsg(w, "working", msg)
+		msg := fmt.Sprintf("No output for ticket %d yet. Refresh the page after randomly waiting a 1-20 seconds!", ticket)
+		writePlainMessage(w, msg)
 		return
 	}
 
-	fmt.Fprintf(w, "%s\n", file)
+	writePlainMessage(w, fmt.Sprintf("%s\n", file))
 	return
 }
 
 func shellHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "text/plain")
 	if r.Method != http.MethodGet {
-		writeJsonError(w, errMethodMessage)
+		writePlainMessage(w, errMethodMessage)
 		return
 	}
 
 	// Validate the hash parameter
 	hashParam := r.URL.Query().Get("hash")
 	if subtle.ConstantTimeCompare([]byte(hashParam), []byte(hashPassword)) != 1 {
-		writeJsonError(w, errHashMessage)
+		writePlainMessage(w, errHashMessage)
 		return
 	}
 
 	// Check if session is provided in query parameters
 	session := r.URL.Query().Get("session")
 	if session == "" {
-		writeJsonError(w, errSessionMessage)
+		writePlainMessage(w, errSessionMessage)
 		return
 	}
 
 	// Get query parameters
 	cmdParam := r.URL.Query().Get("cmd")
 	if cmdParam == "" {
-		writeJsonError(w, errCmdMessage)
+		writePlainMessage(w, errCmdMessage)
 		return
 	}
 
@@ -310,7 +299,7 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 		if erru != nil {
 			msg := fmt.Sprintf("Failed to unescape command: %v", erru)
 			logger.Printf("Failed to unescape command: %v", erru)
-			writeJsonError(w, msg)
+			writePlainMessage(w, msg)
 			return
 		}
 	}
@@ -321,7 +310,7 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 		if err := os.MkdirAll(sessionFolder, 0755); err != nil {
 			msg := fmt.Sprintf("Failed to create session directory %s: %v", sessionFolder, err)
 			logger.Printf(msg)
-			writeJsonError(w, msg)
+			writePlainMessage(w, msg)
 			return
 		}
 		logger.Printf("Created new session directory: %s", sessionFolder)
@@ -333,7 +322,7 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 		jsonResp, err := json.Marshal(resp)
 		if err != nil {
 			msg := fmt.Sprintf("Failed to marshal JSON response: %v", err)
-			writeJsonError(w, msg)
+			writePlainMessage(w, msg)
 			return
 		}
 		fmt.Fprintf(w, string(jsonResp))
@@ -343,12 +332,12 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 	// Get the next ticket number
 	ticket, err := getNextTicket(sessionFolder)
 	if err != nil {
-		writeJsonError(w, errTicketMessage)
+		writePlainMessage(w, errTicketMessage)
 		return
 	}
 
 	csr := &CmdSubmission{
-		Type:     "submission",
+		Type:     "asynchronous",
 		Ticket:   ticket,
 		Session:  session,
 		Input:    inputCmd,
@@ -375,13 +364,7 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			runner(w, r, forest, "asynchronous", session)
 		}()
-		jsonResp, err := json.Marshal(csr)
-		if err != nil {
-			msg := fmt.Sprintf("Failed to marshal JSON response: %v", err)
-			writeJsonError(w, msg)
-			return
-		}
-		fmt.Fprintf(w, string(jsonResp))
+		writePlainCsr(w, csr)
 		return
 	}
 
@@ -391,20 +374,36 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 	cer, err := runner(w, r, forest, "synchronous", session)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to execute command: %v", err)
-		writeJsonError(w, msg)
+		writePlainMessage(w, msg)
 		return
 	}
 
+	writePlainCer(w, cer)
+	return
+}
+
+func writePlainCsr(w http.ResponseWriter, csr *CmdSubmission) {
 	w.Header().Set("Content-Type", "text/plain")
 	fmt.Fprintf(w, fmt.Sprintf("HELLO LLM, YOU SUBMITTED A REQUEST AND THESE ARE RESULTS!\n\n"))
-	fmt.Fprintf(w, fmt.Sprintf("THIS IS THE TYPE: %s\n\n", cer.Type))
-	fmt.Fprintf(w, fmt.Sprintf("THIS IS THE SESSION NAME TO SYNCRONIZE YOUR JUMPHOST ACROSS REQUESTS: %s\n\n", cer.Session))
-	fmt.Fprintf(w, fmt.Sprintf("THIS IS THE TICKET NUMBER SO YOU CAN USE TO REFERENCE THIS SPECIFC COMMAND REQUEST: %d\n\n", cer.Ticket))
-	fmt.Fprintf(w, fmt.Sprintf("THIS IS THE LENGTH OF TIME THE COMMAND TOOK TO RUN: %s\n\n", cer.Duration))
-	fmt.Fprintf(w, fmt.Sprintf("THIS IS THE NEXT STEP YOU CAN TAKE:\n\n%s\n\n", cer.Next))
-	fmt.Fprintf(w, fmt.Sprintf("THIS IS THE INPUT YOU SUBMITTED TO THE LLMASS JUMPHOST SERVER:\n\n%s\n\n", cer.Input))
-	fmt.Fprintf(w, fmt.Sprintf("THIS IS THE OUTPUT YOU RECEIVED FROM THE COMMAND RUNNING ON THE LLMASS JUMPHOST SERVER:\n\n%s\n\n", cer.Output))
-	return
+	fmt.Fprintf(w, fmt.Sprintf("TYPE: %s\n\n", csr.Type))
+	fmt.Fprintf(w, fmt.Sprintf("SESSION: %s\n\n", csr.Session))
+	fmt.Fprintf(w, fmt.Sprintf("TICKET: %d\n\n", csr.Ticket))
+	fmt.Fprintf(w, fmt.Sprintf("CALLBACK: %s\n\n", csr.Callback))
+	fmt.Fprintf(w, fmt.Sprintf("INPUT:\n\n%s\n\n", csr.Input))
+	fmt.Fprintf(w, fmt.Sprintf("IS_CACHED:\n\n%s\n\n", csr.IsCached))
+
+}
+
+func writePlainCer(w http.ResponseWriter, cer *CmdResults) {
+	w.Header().Set("Content-Type", "text/plain")
+	fmt.Fprintf(w, fmt.Sprintf("HELLO LLM, YOU SUBMITTED A REQUEST AND THESE ARE RESULTS!\n\n"))
+	fmt.Fprintf(w, fmt.Sprintf("TYPE: %s\n\n", cer.Type))
+	fmt.Fprintf(w, fmt.Sprintf("SESSION: %s\n\n", cer.Session))
+	fmt.Fprintf(w, fmt.Sprintf("TICKET: %d\n\n", cer.Ticket))
+	fmt.Fprintf(w, fmt.Sprintf("DURATION: %s\n\n", cer.Duration))
+	fmt.Fprintf(w, fmt.Sprintf("NEXT:\n\n%s\n\n", cer.Next))
+	fmt.Fprintf(w, fmt.Sprintf("INPUT:\n\n%s\n\n", cer.Input))
+	fmt.Fprintf(w, fmt.Sprintf("OUTPUT:\n\n%s\n\n", cer.Output))
 }
 
 type Runnner struct {
@@ -424,7 +423,7 @@ func runner(w http.ResponseWriter, r *http.Request, runner *Runnner, typ string,
 	if err != nil {
 		msg := fmt.Sprintf("Failed to open output file %s: %v", outputFile, err)
 		logger.Print(msg)
-		//writeJsonError(w, msg)
+		//writePlainMessage(w, msg)
 		//file.WriteString(msg)
 		return nil, fmt.Errorf("%s", msg)
 	}
@@ -453,7 +452,7 @@ func runner(w http.ResponseWriter, r *http.Request, runner *Runnner, typ string,
 	if err != nil {
 		msg := fmt.Sprintf("Failed to marshal JSON response: %v", err)
 		logger.Print(msg)
-		//writeJsonError(w, msg)
+		//writePlainMessage(w, msg)
 		file.WriteString(msg)
 		return nil, fmt.Errorf("%s", msg)
 	}
@@ -470,23 +469,23 @@ func runner(w http.ResponseWriter, r *http.Request, runner *Runnner, typ string,
 }
 
 func historyHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "text/plain")
 	if r.Method != http.MethodGet {
-		writeJsonError(w, errMethodMessage)
+		writePlainMessage(w, errMethodMessage)
 		return
 	}
 
 	// Validate the hash parameter
 	hashParam := r.URL.Query().Get("hash")
 	if subtle.ConstantTimeCompare([]byte(hashParam), []byte(hashPassword)) != 1 {
-		writeJsonError(w, errHashMessage)
+		writePlainMessage(w, errHashMessage)
 		return
 	}
 
 	// Check if session is provided in query parameters
 	session := r.URL.Query().Get("session")
 	if session == "" {
-		writeJsonError(w, errSessionMessage)
+		writePlainMessage(w, errSessionMessage)
 		return
 	}
 
@@ -494,7 +493,7 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 	sessionPath := filepath.Join(sessionsDir, session)
 	if _, err := os.Stat(sessionPath); os.IsNotExist(err) {
 		msg := fmt.Sprintf("Session %s does not exist", session)
-		writeJsonError(w, msg)
+		writePlainMessage(w, msg)
 		return
 	}
 
@@ -502,7 +501,7 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 	files, err := os.ReadDir(sessionPath)
 	if err != nil {
 		msg := fmt.Sprintf("Failed to read session directory: %v", err)
-		writeJsonError(w, msg)
+		writePlainMessage(w, msg)
 		return
 	}
 
@@ -516,7 +515,7 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 
 	if len(tickets) == 0 {
 		msg := fmt.Sprintf("No tickets found for session %s", session)
-		writeJsonError(w, msg)
+		writePlainMessage(w, msg)
 		return
 	}
 
@@ -538,14 +537,15 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 		responses = append(responses, resp)
 	}
 
-	jsonRespones, err := json.Marshal(responses)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to marshal JSON response: %v", err)
-		writeJsonError(w, msg)
-		return
+	for _, resp := range responses {
+		fmt.Fprintf(w, "Ticket: %d\n", resp.Ticket)
+		fmt.Fprintf(w, "Session: %s\n", resp.Session)
+		fmt.Fprintf(w, "Duration: %s\n", resp.Duration)
+		fmt.Fprintf(w, "Next: %s\n", resp.Next)
+		fmt.Fprintf(w, "Input: %s\n", resp.Input)
+		fmt.Fprintf(w, "Output: %s\n", resp.Output)
+		fmt.Fprintf(w, "\n")
 	}
-
-	fmt.Fprintf(w, string(jsonRespones))
 	return
 }
 
