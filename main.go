@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/subtle"
-	"encoding/json"
+	"sort"
+
+	//"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -318,14 +320,8 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 
 	isCached := lastCmdMatch(inputCmd)
 	if isCached {
-		resp := NewCmdReponse(session, true)
-		jsonResp, err := json.Marshal(resp)
-		if err != nil {
-			msg := fmt.Sprintf("Failed to marshal JSON response: %v", err)
-			writePlainMessage(w, msg)
-			return
-		}
-		fmt.Fprintf(w, string(jsonResp))
+		resp := NewCmdResponse(session, "cached", true)
+		writePlainCsr(w, resp)
 		return
 	}
 
@@ -384,26 +380,38 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 
 func writePlainCsr(w http.ResponseWriter, csr *CmdSubmission) {
 	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, fmt.Sprintf("HELLO LLM, YOU SUBMITTED A REQUEST AND THESE ARE RESULTS!\n\n"))
-	fmt.Fprintf(w, fmt.Sprintf("TYPE: %s\n\n", csr.Type))
-	fmt.Fprintf(w, fmt.Sprintf("SESSION: %s\n\n", csr.Session))
-	fmt.Fprintf(w, fmt.Sprintf("TICKET: %d\n\n", csr.Ticket))
-	fmt.Fprintf(w, fmt.Sprintf("CALLBACK: %s\n\n", csr.Callback))
-	fmt.Fprintf(w, fmt.Sprintf("INPUT:\n\n%s\n\n", csr.Input))
-	fmt.Fprintf(w, fmt.Sprintf("IS_CACHED:\n\n%s\n\n", csr.IsCached))
+	fmt.Fprintf(w, makePlainCsr(csr))
+}
 
+func makePlainCsr(csr *CmdSubmission) string {
+	res := fmt.Sprintf("HELLO LLM, YOU SUBMITTED A REQUEST AND THESE ARE RESULTS!\n\n")
+	res += fmt.Sprintf("TYPE: %s\n\n", csr.Type)
+	res += fmt.Sprintf("SESSION: %s\n\n", csr.Session)
+	res += fmt.Sprintf("TICKET: %d\n\n", csr.Ticket)
+	res += fmt.Sprintf("CALLBACK: %s\n\n", csr.Callback)
+	res += fmt.Sprintf("INPUT:\n\n%s\n\n", csr.Input)
+	res += fmt.Sprintf("IS_CACHED:\n\n%v\n\n", csr.IsCached)
+	return res
 }
 
 func writePlainCer(w http.ResponseWriter, cer *CmdResults) {
 	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, fmt.Sprintf("HELLO LLM, YOU SUBMITTED A REQUEST AND THESE ARE RESULTS!\n\n"))
-	fmt.Fprintf(w, fmt.Sprintf("TYPE: %s\n\n", cer.Type))
-	fmt.Fprintf(w, fmt.Sprintf("SESSION: %s\n\n", cer.Session))
-	fmt.Fprintf(w, fmt.Sprintf("TICKET: %d\n\n", cer.Ticket))
-	fmt.Fprintf(w, fmt.Sprintf("DURATION: %s\n\n", cer.Duration))
-	fmt.Fprintf(w, fmt.Sprintf("NEXT:\n\n%s\n\n", cer.Next))
-	fmt.Fprintf(w, fmt.Sprintf("INPUT:\n\n%s\n\n", cer.Input))
-	fmt.Fprintf(w, fmt.Sprintf("OUTPUT:\n\n%s\n\n", cer.Output))
+	fmt.Fprintf(w, makePlainCer(cer))
+}
+
+func makePlainCer(cer *CmdResults) string {
+	res := fmt.Sprintf("HELLO LLM, YOU SUBMITTED A REQUEST AND THESE ARE RESULTS!\n\n")
+	res += fmt.Sprintf("TYPE: %s\n\n", cer.Type)
+	res += fmt.Sprintf("SESSION: %s\n\n", cer.Session)
+	res += fmt.Sprintf("TICKET: %d\n\n", cer.Ticket)
+	res += fmt.Sprintf("DURATION: %s\n\n", cer.Duration)
+	res += fmt.Sprintf("NEXT:\n\n%s\n\n", cer.Next)
+	res += fmt.Sprintf("INPUT:\n\n%s\n\n", cer.Input)
+	res += fmt.Sprintf("OUTPUT:\n\n%s\n\n", cer.Output)
+	return res
+}
+
+func writePlainCmd(w http.ResponseWriter) {
 }
 
 type Runnner struct {
@@ -423,11 +431,10 @@ func runner(w http.ResponseWriter, r *http.Request, runner *Runnner, typ string,
 	if err != nil {
 		msg := fmt.Sprintf("Failed to open output file %s: %v", outputFile, err)
 		logger.Print(msg)
-		//writePlainMessage(w, msg)
-		//file.WriteString(msg)
 		return nil, fmt.Errorf("%s", msg)
 	}
 	defer file.Close()
+
 	start := time.Now()
 	// Execute the command using a shell to preserve quotes and complex syntax
 	cmd := exec.CommandContext(ctx, "/bin/bash", "-c", runner.InputCmd) // Use "cmd" /C on Windows if needed
@@ -439,32 +446,34 @@ func runner(w http.ResponseWriter, r *http.Request, runner *Runnner, typ string,
 		// falled through so we can write the error to file
 	}
 
-	cer := &CmdResults{}
-	cer.Type = typ
-	cer.Next = "This is your result. Review the Input & Output. You can now issue your next command to /shell"
-	cer.Ticket = runner.Ticket
-	cer.Session = session
-	cer.Input = runner.InputCmd
-	cer.Output = string(output)
-	cer.Duration = time.Since(start).String()
+	// Write the output to the file
+	result := makePlainCer(&CmdResults{
+		Type:     typ,
+		Next:     "This is your result. Review the Input & Output. You can now issue your next command to /shell",
+		Ticket:   runner.Ticket,
+		Session:  session,
+		Input:    runner.InputCmd,
+		Output:   string(output),
+		Duration: time.Since(start).String(),
+	})
 
-	jsonResp, err := json.Marshal(cer)
-	if err != nil {
-		msg := fmt.Sprintf("Failed to marshal JSON response: %v", err)
-		logger.Print(msg)
-		//writePlainMessage(w, msg)
-		file.WriteString(msg)
-		return nil, fmt.Errorf("%s", msg)
+	if _, err := file.WriteString(result); err != nil {
+		logger.Printf("Failed to write to file %s: %v", outputFile, err)
 	}
 
-	_, writeErr := file.Write(jsonResp)
-	if writeErr != nil {
-		msg := fmt.Sprintf("Failed to write error to file: %v", writeErr)
-		logger.Print(msg)
-		file.WriteString(msg)
-		//return
-		return nil, fmt.Errorf("%s", msg)
+	cer := &CmdResults{
+		Type:     typ,
+		Next:     "This is your result. Review the Input & Output. You can now issue your next command to /shell",
+		Ticket:   runner.Ticket,
+		Session:  session,
+		Input:    runner.InputCmd,
+		Output:   string(output),
+		Duration: time.Since(start).String(),
 	}
+
+	// Remove this line to prevent double output
+	// writePlainCer(w, cer)
+
 	return cer, nil
 }
 
@@ -519,32 +528,32 @@ func historyHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var responses []*CmdResults
-	// Display content of all tickets
+	// Sort tickets numerically
+	sort.Slice(tickets, func(i, j int) bool {
+		numI, _ := strconv.Atoi(strings.TrimSuffix(tickets[i], ".ticket"))
+		numJ, _ := strconv.Atoi(strings.TrimSuffix(tickets[j], ".ticket"))
+		return numI < numJ
+	})
+
+	fmt.Fprintf(w, "HELLO LLM, HERE IS YOUR COMMAND HISTORY:\n\n")
+
+	// Display content of all tickets with clear separation
 	for _, ticket := range tickets {
+		ticketNum := strings.TrimSuffix(ticket, ".ticket")
+		fmt.Fprintf(w, "--- TICKET %s ---\n", ticketNum)
+
 		content, err := os.ReadFile(filepath.Join(sessionPath, ticket))
 		if err != nil {
 			logger.Printf("Failed to read ticket %s: %v", ticket, err)
-			continue
-		}
-		resp := &CmdResults{}
-		err = json.Unmarshal(content, resp)
-		if err != nil {
-			logger.Printf("Failed to unmarshal JSON from ticket %s: %v", ticket, err)
+			fmt.Fprintf(w, "Error reading ticket: %v\n\n", err)
 			continue
 		}
 
-		responses = append(responses, resp)
-	}
-
-	for _, resp := range responses {
-		fmt.Fprintf(w, "Ticket: %d\n", resp.Ticket)
-		fmt.Fprintf(w, "Session: %s\n", resp.Session)
-		fmt.Fprintf(w, "Duration: %s\n", resp.Duration)
-		fmt.Fprintf(w, "Next: %s\n", resp.Next)
-		fmt.Fprintf(w, "Input: %s\n", resp.Input)
-		fmt.Fprintf(w, "Output: %s\n", resp.Output)
-		fmt.Fprintf(w, "\n")
+		if len(content) > 0 {
+			fmt.Fprintf(w, "%s\n\n", content)
+		} else {
+			fmt.Fprintf(w, "[Empty ticket]\n\n")
+		}
 	}
 	return
 }
@@ -686,11 +695,11 @@ func updateLastCommandByTicketResponse(resp *CmdSubmission) {
 	lastCommand.Time = time.Now()
 }
 
-func NewCmdReponse(session string, isCached bool) *CmdSubmission {
+func NewCmdResponse(session string, typ string, isCached bool) *CmdSubmission {
 	lastCommand.mu.Lock()
 	defer lastCommand.mu.Unlock()
 	return &CmdSubmission{
-		Type:     "submission",
+		Type:     typ,
 		IsCached: isCached,
 		Session:  session,
 		Ticket:   lastCommand.Ticket,
