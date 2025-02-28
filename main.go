@@ -45,6 +45,7 @@ type CmdSubmission struct {
 	Ticket   int    `json:"ticket"`
 	Session  string `json:"session"`
 	Input    string `json:"input"`
+	B64Input string `json:"b64input,omitempty"` // Add this field
 	Callback string `json:"callback"`
 }
 
@@ -54,6 +55,7 @@ type CmdResults struct {
 	Ticket   int    `json:"ticket"`
 	Session  string `json:"session"`
 	Input    string `json:"input"`
+	B64Input string `json:"b64input,omitempty"`
 	Output   string `json:"output"`
 	Duration string `json:"duration"`
 }
@@ -342,6 +344,7 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 		Ticket:   ticket,
 		Session:  session,
 		Input:    inputCmd,
+		B64Input: b64CmdParam,
 		IsCached: isCached,
 		Callback: Callback(session, ticket),
 	}
@@ -395,6 +398,10 @@ func makePlainCsr(csr *CmdSubmission) string {
 	res += fmt.Sprintf("TICKET: %d\n\n", csr.Ticket)
 	res += fmt.Sprintf("CALLBACK: %s\n\n", csr.Callback)
 	res += fmt.Sprintf("INPUT:\n\n%s\n\n", csr.Input)
+	// Add this conditional section to include B64Input when present
+	if csr.B64Input != "" {
+		res += fmt.Sprintf("B64INPUT:\n\n%s\n\n", csr.B64Input)
+	}
 	res += fmt.Sprintf("IS_CACHED:\n\n%v\n\n", csr.IsCached)
 	return res
 }
@@ -411,6 +418,9 @@ func makePlainCer(cer *CmdResults) string {
 	res += fmt.Sprintf("TICKET: %d\n\n", cer.Ticket)
 	res += fmt.Sprintf("DURATION: %s\n\n", cer.Duration)
 	res += fmt.Sprintf("NEXT:\n\n%s\n\n", cer.Next)
+	if cer.B64Input != "" {
+		res += fmt.Sprintf("B64INPUT:\n\n%s\n\n", cer.B64Input)
+	}
 	res += fmt.Sprintf("INPUT:\n\n%s\n\n", cer.Input)
 	res += fmt.Sprintf("OUTPUT:\n\n%s\n\n", cer.Output)
 	return res
@@ -450,34 +460,21 @@ func runner(w http.ResponseWriter, r *http.Request, runner *Runnner, typ string,
 		// WARNING: don't return
 		// falled through so we can write the error to file
 	}
-
-	// Write the output to the file
-	result := makePlainCer(&CmdResults{
-		Type:     typ,
-		Next:     "This is your result. Review the Input & Output. You can now issue your next command to /shell",
-		Ticket:   runner.Ticket,
-		Session:  session,
-		Input:    runner.InputCmd,
-		Output:   string(output),
-		Duration: time.Since(start).String(),
-	})
-
-	if _, err := file.WriteString(result); err != nil {
-		logger.Printf("Failed to write to file %s: %v", outputFile, err)
-	}
-
 	cer := &CmdResults{
 		Type:     typ,
 		Next:     "This is your result. Review the Input & Output. You can now issue your next command to /shell",
 		Ticket:   runner.Ticket,
 		Session:  session,
 		Input:    runner.InputCmd,
+		B64Input: runner.CmdSubmission.B64Input, // Add this line
 		Output:   string(output),
 		Duration: time.Since(start).String(),
 	}
-
-	// Remove this line to prevent double output
-	// writePlainCer(w, cer)
+	// Write the output to the file
+	result := makePlainCer(cer)
+	if _, err := file.WriteString(result); err != nil {
+		logger.Printf("Failed to write to file %s: %v", outputFile, err)
+	}
 
 	return cer, nil
 }
