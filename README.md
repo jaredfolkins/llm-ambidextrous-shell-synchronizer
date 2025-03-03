@@ -74,17 +74,22 @@ HASH=REPLACE_ME_WITH_THE_HASH_YOU_WERE_PROVIDED
 FQDN=http://localhost:8083
 PORT=8083
 SESSIONS_DIR=sessions
+SYNC=true
+DEMO=true
 ```
-
 
 ## Parameter Map
 
-| GET Parameter | Description                                        | /shell   | /history | /callback | /context   | /       |
-|---------------|----------------------------------------------------|----------|----------|-----------|------------|---------|
-| `hash`        | >= 32-character password for authentication.       | required | required | required  | required   | n/a     |
-| `cmd`         | Url encoded cli command to execute                 | required | n/a      | n/a       | n/a        | n/a     |
-| `ticket`      | Ticket number of the request                       | n/a      | n/a      | required  | n/a        | n/a     |
-| `session`     | Session in order that the llm can maintain context | required | required | required  | n/a        | n/a     |
+| Endpoint   | hash     | cmd      | ticket   | session  | name     | clear    |
+|------------|----------|----------|----------|----------|----------|----------|
+| `/shell`   | Required | Required | N/A      | Required | N/A      | N/A      |
+| `/history` | Required | N/A      | N/A      | Required | N/A      | N/A      |
+| `/callback`| Required | N/A      | Required | Required | N/A      | N/A      |
+| `/context` | Required | N/A      | N/A      | N/A      | N/A      | N/A      |
+| `/session` | Required | N/A      | N/A      | N/A      | Required | Optional |
+| `/`        | N/A      | N/A      | N/A      | N/A      | N/A      | N/A      |
+
+
 
 ## Shell
 

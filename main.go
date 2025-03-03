@@ -34,6 +34,7 @@ var assetsFS embed.FS
 
 var (
 	hashPassword string // Global variable for the hash password
+	demoMode     bool   // Global variable for demo mode
 	fqdn         string // Global variable for the FQDN
 	port         string // Global variable for the port
 	sessionsDir  string // Global variable for the sessions directory
@@ -145,6 +146,13 @@ func loadEnv() {
 	err := godotenv.Load()
 	if err != nil {
 		logger.Fatalf("Error loading .env file: %v", err)
+	}
+
+	// Check if DEMO mode is enabled
+	demoValue := os.Getenv("DEMO")
+	demoMode = demoValue == "true" || demoValue == "True" || demoValue == "1"
+	if demoMode {
+		logger.Printf("DEMO mode is enabled - hash will be displayed")
 	}
 
 	syncValue := os.Getenv("SYNC")
@@ -587,6 +595,11 @@ func readmeHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Use the embedded README.md content
 	contentStr := strings.ReplaceAll(string(readmeContent), "{FQDN}", fqdn)
+
+	// If DEMO mode is enabled, prepend the hash to the content
+	if demoMode {
+		contentStr = fmt.Sprintf("# DEMO Mode\n\nThis instance of llmass is setup in *demo mode*.\n\nThis is **extremely dangerous** as anyone with the key can fully control the host.\n\nHash: `%s`\n\n%s", hashPassword, contentStr)
+	}
 
 	// Convert markdown to HTML
 	html := blackfriday.Run([]byte(contentStr))
