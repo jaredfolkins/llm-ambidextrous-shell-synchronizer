@@ -2,7 +2,9 @@
 
 **LLM Ambidextrous Shell Synchronizer**
 
-tldr; Enables an **LLM** to remotely & securely control a jumphost using synchronous or asynchronous `GET` requests. 
+Enables an **LLM** to remotely & securely control a jumphost using synchronous or asynchronous `GET` requests.
+
+Version: 2025-03-03-v1
 
 ## License
 
