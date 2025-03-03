@@ -16,7 +16,7 @@ This project is released by [Jared Folkins](https://x.com/jf0lkins) under the [M
 
 - **Secure Hash Check**: Requires >= 32-character `HASH` for request authentication.
 - **Sessions**: Commands are organized into `sessions` where each command gets a ticket number with its output saved to file.
-- **Dynamic Group Names**: Automatically generate a random session name if not specified.
+- **Manage session**: Generate a session by value and clear the session if needing to start fresh.
 - **Terminal**: Retrieve all outputs for a session.
 - **Ticket**: Retrieve a specific ticket from a session.
 - **Documentation**: Serves a dynamically rendered markdown `README.md`.
@@ -199,6 +199,27 @@ curl -G "{FQDN}/context?hash=REPLACE_ME_WITH_THE_HASH_YOU_WERE_PROVIDED"
 **Example**
 ```bash
 curl -G "{FQDN}/"
+```
+
+## Session
+
+- **Description**: Create or reset a session with a specific name.
+- **Path**: [{FQDN}/session]({FQDN}/session)
+- **Method**: `GET`
+- **Query Parameters**:
+  - `hash`: Must match the `HASH` from your `.env`.
+  - `name`: The name to assign to the session.
+  - `clear`: Optional. If set to "true", deletes the existing session before creating a new one.
+
+The Session endpoint allows you to explicitly create a new session or clear an existing one. Sessions are used to group commands and their outputs together, maintaining context across multiple commands.
+
+**Examples**:
+```bash
+# Create a new session
+curl -G "{FQDN}/session" --data-urlencode "hash=YOUR_32CHAR_HASH" --data-urlencode "name=my_new_session"
+
+# Reset an existing session (delete and recreate)
+curl -G "{FQDN}/session" --data-urlencode "hash=YOUR_32CHAR_HASH" --data-urlencode "name=my_existing_session" --data-urlencode "clear=true"
 ```
 
 ## Session Directory Structure

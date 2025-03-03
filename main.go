@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 	"crypto/subtle"
+	"embed"
 	"encoding/base64"
 	"sort"
-
 	//"encoding/json"
 	"fmt"
 	"log"
@@ -22,6 +22,15 @@ import (
 	"github.com/joho/godotenv" // For .env support
 	"github.com/russross/blackfriday/v2"
 )
+
+//go:embed README.md
+var readmeContent []byte
+
+//go:embed CONTEXT.md
+var contextContent []byte
+
+//go:embed assets/*
+var assetsFS embed.FS
 
 var (
 	hashPassword string // Global variable for the hash password
@@ -99,7 +108,9 @@ func main() {
 
 	loadEnv()
 
-	lastCommand = &CmdCache{}
+	// Check for deadlocks with timeout
+	initSessionCache()
+
 	listenAddr := fmt.Sprintf(":%s", port)
 
 	server := &http.Server{
@@ -116,6 +127,7 @@ func main() {
 	http.HandleFunc("/history", tm(historyHandler))
 	http.HandleFunc("/callback", tm(callbackHandler))
 	http.HandleFunc("/context", tm(contextHandler))
+	http.HandleFunc("/session", tm(sessionHandler))
 	http.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.Dir("assets"))))
 	// Start the server using the PORT from .env
 	logger.Printf("Starting server with FQDN: %s on port %s", fqdn, port)
@@ -325,7 +337,7 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 		logger.Printf("Created new session directory: %s", sessionFolder)
 	}
 
-	isCached := lastCmdMatch(inputCmd)
+	isCached := lastCmdMatch(session, inputCmd)
 	if isCached {
 		resp := NewCmdResponse(session, "cached", true)
 		writePlainCsr(w, resp)
@@ -349,7 +361,7 @@ func shellHandler(w http.ResponseWriter, r *http.Request) {
 		Callback: Callback(session, ticket),
 	}
 
-	updateLastCommandByTicketResponse(csr)
+	updateLastCommandByTicketResponse(session, csr)
 
 	// LOG
 
@@ -394,6 +406,7 @@ func writePlainCsr(w http.ResponseWriter, csr *CmdSubmission) {
 func makePlainCsr(csr *CmdSubmission) string {
 	res := fmt.Sprintf("HELLO LLM, YOU SUBMITTED A REQUEST AND THESE ARE RESULTS!\n\n")
 	res += fmt.Sprintf("TYPE: %s\n\n", csr.Type)
+	res += fmt.Sprintf("IS_CACHED:\n\n%v\n\n", csr.IsCached)
 	res += fmt.Sprintf("SESSION: %s\n\n", csr.Session)
 	res += fmt.Sprintf("TICKET: %d\n\n", csr.Ticket)
 	res += fmt.Sprintf("CALLBACK: %s\n\n", csr.Callback)
@@ -402,7 +415,6 @@ func makePlainCsr(csr *CmdSubmission) string {
 	if csr.B64Input != "" {
 		res += fmt.Sprintf("B64INPUT:\n\n%s\n\n", csr.B64Input)
 	}
-	res += fmt.Sprintf("IS_CACHED:\n\n%v\n\n", csr.IsCached)
 	return res
 }
 
@@ -573,15 +585,8 @@ func readmeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read the README.md file
-	content, err := os.ReadFile("README.md")
-	if err != nil {
-		logger.Printf("Failed to read README.md: %v", err)
-		http.Error(w, "Failed to read documentation", http.StatusInternalServerError)
-		return
-	}
-
-	contentStr := strings.ReplaceAll(string(content), "{FQDN}", fqdn)
+	// Use the embedded README.md content
+	contentStr := strings.ReplaceAll(string(readmeContent), "{FQDN}", fqdn)
 
 	// Convert markdown to HTML
 	html := blackfriday.Run([]byte(contentStr))
@@ -608,15 +613,8 @@ func contextHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Read the README.md file
-	content, err := os.ReadFile("CONTEXT.md")
-	if err != nil {
-		logger.Printf("Failed to read CONTEXT.md: %v", err)
-		http.Error(w, "Failed to read documentation", http.StatusInternalServerError)
-		return
-	}
-
-	contentStr := strings.ReplaceAll(string(content), "{FQDN}", fqdn)
+	// Use the embedded CONTEXT.md content
+	contentStr := strings.ReplaceAll(string(contextContent), "{FQDN}", fqdn)
 
 	// Convert markdown to HTML
 	html := blackfriday.Run([]byte(contentStr))
@@ -624,7 +622,7 @@ func contextHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func readMainGo() (string, error) {
-	// Read the main.go file
+	// Since main.go changes during development, we'll still read it from disk
 	content, err := os.ReadFile("main.go")
 	if err != nil {
 		return "", fmt.Errorf("failed to read main.go: %v", err)
@@ -677,36 +675,80 @@ type CmdCache struct {
 	mu       sync.Mutex
 }
 
-var lastCommand *CmdCache
+// SessionCommandCache maps session names to their respective command caches
+type SessionCommandCache struct {
+	mu     sync.RWMutex
+	caches map[string]*CmdCache
+}
 
-func lastCmdMatch(command string) bool {
-	lastCommand.mu.Lock()
-	defer lastCommand.mu.Unlock()
-	if lastCommand != nil && lastCommand.Input == command && time.Since(lastCommand.Time) < time.Minute {
+var sessionCmdCache *SessionCommandCache
+
+// Initialize the session cache
+func initSessionCache() {
+	sessionCmdCache = &SessionCommandCache{
+		caches: make(map[string]*CmdCache),
+	}
+} // Get or create a command cache for a specific session
+
+func (sc *SessionCommandCache) getSessionCache(session string) *CmdCache {
+	sc.mu.RLock()
+	cache, exists := sc.caches[session]
+	sc.mu.RUnlock()
+
+	if !exists {
+		sc.mu.Lock()
+		// Check again to avoid race condition
+		if cache, exists = sc.caches[session]; !exists {
+			cache = &CmdCache{mu: sync.Mutex{}}
+			sc.caches[session] = cache
+		}
+		sc.mu.Unlock()
+	}
+
+	return cache
+}
+
+// Check if command matches last command for this session
+func lastCmdMatch(session, command string) bool {
+	cache := sessionCmdCache.getSessionCache(session)
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	if cache.Input == command && time.Since(cache.Time) < time.Minute {
 		return true
 	}
 	return false
 }
-func updateLastCommandByTicketResponse(resp *CmdSubmission) {
-	lastCommand.mu.Lock()
-	defer lastCommand.mu.Unlock()
-	lastCommand.Callback = resp.Callback
-	lastCommand.IsCached = resp.IsCached
-	lastCommand.Input = resp.Input
-	lastCommand.Ticket = resp.Ticket
-	lastCommand.Time = time.Now()
+
+// Update the session-specific cache with response
+func updateLastCommandByTicketResponse(session string, resp *CmdSubmission) {
+	cache := sessionCmdCache.getSessionCache(session)
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
+	cache.Callback = resp.Callback
+	cache.IsCached = resp.IsCached
+	cache.Input = resp.Input
+	cache.Ticket = resp.Ticket
+	cache.Time = time.Now()
 }
 
-func NewCmdResponse(session string, typ string, isCached bool) *CmdSubmission {
-	lastCommand.mu.Lock()
-	defer lastCommand.mu.Unlock()
+// Create response from the session-specific cache
+func NewCmdResponse(session, typ string, isCached bool) *CmdSubmission {
+	cache := sessionCmdCache.getSessionCache(session)
+
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+
 	return &CmdSubmission{
 		Type:     typ,
 		IsCached: isCached,
 		Session:  session,
-		Ticket:   lastCommand.Ticket,
-		Input:    lastCommand.Input,
-		Callback: lastCommand.Callback,
+		Ticket:   cache.Ticket,
+		Input:    cache.Input,
+		Callback: cache.Callback,
 	}
 }
 
@@ -719,4 +761,66 @@ func shouldSync() bool {
 		return true
 	}
 	return false
+
+}
+
+func sessionHandler(w http.ResponseWriter, r *http.Request) {
+	// Only handle the exact path
+	if r.URL.Path != "/session" {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Ensure the request is a GET
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Validate the hash parameter
+	hashParam := r.URL.Query().Get("hash")
+	if subtle.ConstantTimeCompare([]byte(hashParam), []byte(hashPassword)) != 1 {
+		http.Error(w, "Invalid or missing 'hash' parameter", http.StatusUnauthorized)
+		return
+	}
+
+	// Get the name parameter
+	nameParam := r.URL.Query().Get("name")
+	if nameParam == "" {
+		http.Error(w, "Missing 'name' parameter", http.StatusBadRequest)
+		return
+	}
+
+	// Check if we should clear the session first
+	clearParam := r.URL.Query().Get("clear")
+	clearSession := clearParam == "true"
+
+	sessionPath := filepath.Join(sessionsDir, nameParam)
+
+	// Clear the session if requested
+	if clearSession {
+		// Remove from cache
+		sessionCmdCache.mu.Lock()
+		delete(sessionCmdCache.caches, nameParam)
+		sessionCmdCache.mu.Unlock()
+
+		// Remove directory
+		if err := os.RemoveAll(sessionPath); err != nil {
+			logger.Printf("Failed to remove session directory for %s: %v", nameParam, err)
+			http.Error(w, "Failed to clear session", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Create session directory if it doesn't exist
+	if err := os.MkdirAll(sessionPath, 0755); err != nil {
+		logger.Printf("Failed to create session directory for %s: %v", nameParam, err)
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
+
+	// Initialize the session in the cache
+	sessionCmdCache.getSessionCache(nameParam)
+
+	writePlainMessage(w, fmt.Sprintf("Session '%s' created successfully", nameParam))
 }

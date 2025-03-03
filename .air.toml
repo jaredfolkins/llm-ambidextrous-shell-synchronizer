@@ -5,7 +5,7 @@ tmp_dir = "tmp"
 [build]
 cmd = "go build -race -o ./tmp/main ."
 bin = "./tmp/main"
-full_bin = "GODEBUG=asyncpreemptoff=1 ./tmp/main"
+full_bin = "GODEBUG=asyncpreemptoff=1 ./tmp/main && go test ./..."
 include_ext = ["go", "tpl", "tmpl", "html"]
 exclude_dir = ["assets", "tmp", "vendor", "sessions"]
 include_dir = []
