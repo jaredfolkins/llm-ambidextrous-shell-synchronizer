@@ -1,3 +1,8 @@
+# Admin
+
+These features are only available to administrators and shouldn't be fed into an llm.
+
+
 # LLMASS
 
 **LLM Ambidextrous Shell Synchronizer**
@@ -82,7 +87,7 @@ DEMO=true
 
 ## Parameter Map
 
-| Endpoint   | hash     | b64cmd   | ticket   | session  | name     | clear    |
+| Endpoint   | hash     | cmd      | ticket   | session  | name     | clear    |
 |------------|----------|----------|----------|----------|----------|----------|
 | `/shell`   | Required | Required | N/A      | Required | N/A      | N/A      |
 | `/history` | Required | N/A      | N/A      | Required | N/A      | N/A      |
@@ -99,15 +104,26 @@ DEMO=true
 - **Path**: [{FQDN}/shell]({FQDN}/shell)
 - **Method**: `GET`
 - **Query Parameters**:
-  - `hash`: Must match the `HASH` from your `.env`.
-  - `b64cmd`: A base64-encoded shell command (alternative to `cmd`).
-  - `session`: A directory/session name
+    - `hash`: Must match the `HASH` from your `.env`.
+    - `cmd`: A URL encoded shell command to execute, e.g., `ls -lah`.
+    - `b64cmd`: A base64-encoded shell command (alternative to `cmd`).
+    - `session`: A directory/session name
 
 ### Command Parameter Options
 
 The `/shell` endpoint supports two methods for specifying commands:
 
-#### Base64-encoded Command Parameter (`b64cmd`)
+#### 1. Standard Command Parameter (`cmd`)
+
+```
+/shell?hash=YOUR_HASH&session=SESSION_NAME&cmd=ls+-la
+```
+
+- Uses URL encoding for special characters
+- Simple for basic commands
+
+
+#### 2. Base64-encoded Command Parameter (`b64cmd`)
 
 ```
 /shell?hash=YOUR_HASH&session=SESSION_NAME&b64cmd=bHMgLWxhCg==
@@ -118,9 +134,9 @@ The `/shell` endpoint supports two methods for specifying commands:
 - Supports multi-line commands without URL encoding issues
 - Helps prevent problems with shell escaping and quotation marks
 
-**Note**: You must provide `b64cmd` parameter.
+**Note**: You must provide either `cmd` OR `b64cmd` parameter (not both).
 
-#### Examples 
+#### Examples
 
 **Encoding a multi-line command:**
 
@@ -136,6 +152,10 @@ EOF
 ```
 
 **Examples**:
+```bash
+# Using URL-encoded command
+curl -G "{FQDN}/shell" --data-urlencode "cmd=ls -lah" --data-urlencode "hash=REPLACE_ME_WITH_THE_HASH_YOU_WERE_PROVIDED" --data-urlencode "session=mysession"
+
 # Using base64-encoded command
 curl -G "{FQDN}/shell" --data-urlencode "b64cmd=bHMgLWxhaAo=" --data-urlencode "hash=REPLACE_ME_WITH_THE_HASH_YOU_WERE_PROVIDED" --data-urlencode "session=mysession"
 ```
@@ -146,9 +166,9 @@ curl -G "{FQDN}/shell" --data-urlencode "b64cmd=bHMgLWxhaAo=" --data-urlencode "
 - **Path**: [{FQDN}/callback]({FQDN}/callback)
 - **Method**: `GET`
 - **Query Parameters**:
-  - `hash`: Must match the `HASH`.
-  - `session`: The session name to fetch the ticket from.
-  - `ticket`: The specific ticket number to retrieve.
+    - `hash`: Must match the `HASH`.
+    - `session`: The session name to fetch the ticket from.
+    - `ticket`: The specific ticket number to retrieve.
 
 **Example**:
 ```bash
@@ -161,8 +181,8 @@ curl -G "{FQDN}/callback?session=REPLACE_WITH_YOUR_SESSION&ticket=REPLACE_WITH_Y
 - **Path**: [{FQDN}/history]({FQDN}/history)
 - **Method**: `GET`
 - **Query Parameters**:
-  - `hash`: Must match the `HASH`.
-  - `session`: The session name to fetch the ticket from.
+    - `hash`: Must match the `HASH`.
+    - `session`: The session name to fetch the ticket from.
 
 **Example**:
 ```bash
@@ -175,7 +195,7 @@ curl -G "{FQDN}/history?session=REPLACE_WITH_YOUR_SESSION&hash=REPLACE_ME_WITH_T
 - **Path**: [{FQDN}/context]({FQDN}/context)
 - **Method**: `GET`
 - **Query Parameters**:
-  - `hash`: Must match the `HASH`.
+    - `hash`: Must match the `HASH`.
 
 **Example**:
 ```bash
@@ -199,9 +219,9 @@ curl -G "{FQDN}/"
 - **Path**: [{FQDN}/session]({FQDN}/session)
 - **Method**: `GET`
 - **Query Parameters**:
-  - `hash`: Must match the `HASH` from your `.env`.
-  - `name`: The name to assign to the session.
-  - `clear`: Optional. If set to "true", deletes the existing session before creating a new one.
+    - `hash`: Must match the `HASH` from your `.env`.
+    - `name`: The name to assign to the session.
+    - `clear`: Optional. If set to "true", deletes the existing session before creating a new one.
 
 The Session endpoint allows you to explicitly create a new session or clear an existing one. Sessions are used to group commands and their outputs together, maintaining context across multiple commands.
 
@@ -241,3 +261,80 @@ After running commands, you’ll see a structure like:
 - Ensure that `HASH` is random and never checked into source control.
 - Secure your server and be responsible.
 - Happy hacking!
+
+## Procedure for LLM Consumption
+
+#### 1. Initial Command Request:
+
+Request
+
+```
+curl -G "{FQDN}/shell" \
+--data-urlencode "hash=YOUR_32CHAR_HASH" \
+--data-urlencode "session=my_session" \
+--data-urlencode "cmd=ls -la"
+```
+
+Response
+
+```
+{
+ "type": "submission",
+ "ticket": 1,
+ "session": "my_session",
+ "input": "ls -la",
+ "callback": "{FQDN}/callback?hash=YOUR_32CHAR_HASH&session=my_session&ticket=1"
+}
+```
+
+#### 2. Check Command Status:
+
+**Request**
+
+```
+  curl -G "{FQDN}/callback" \
+  --data-urlencode "hash=YOUR_32CHAR_HASH" \
+  --data-urlencode "session=my_session" \
+  --data-urlencode "ticket=1"
+```
+
+**Response**
+
+IF command is still running:**
+
+Description: Command for ticket 1 is still executing
+
+Next: Wait a moment and try the callback URL again
+
+**IF command is complete:**
+
+Description: Command execution completed
+
+Next: You can now issue your next command to /shell
+
+```
+{
+"type": "result",
+"ticket": 1,
+"session": "my_session",
+"input": "ls -la",
+"output": "total 32\ndrwxr-xr-x..."
+}
+```
+
+#### 3. View Session History:
+
+``` 
+   curl -G "{FQDN}/history" \
+   --data-urlencode "hash=YOUR_32CHAR_HASH" \
+   --data-urlencode "session=my_session"
+```
+
+#### 4. Next Command:
+
+```
+   curl -G "{FQDN}/shell" \
+   --data-urlencode "hash=YOUR_32CHAR_HASH" \
+   --data-urlencode "session=my_session" \
+   --data-urlencode "cmd=pwd"
+```
