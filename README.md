@@ -1,10 +1,10 @@
 # LLMASS
 
+![](assets/rce.gif)
+
 **LLM Ambidextrous Shell Synchronizer**
 
 Enables an **LLM** to remotely & securely control a jumphost using synchronous or asynchronous `GET` requests.
-
-Version: 2025-03-03-v1
 
 ## License
 
@@ -13,10 +13,6 @@ This project is released by [Jared Folkins](https://x.com/jf0lkins) under the [M
 ## Overview
 
 **LLMASS** is a simple HTTP server written in Go that executes shell commands based on incoming HTTP `GET` requests. The server maintains a directory-based session system, issuing tickets per command, which allows quick chronological viewing of command output.
-
-## Demo
-
-![](assets/rce.gif)
 
 ## Features
 
