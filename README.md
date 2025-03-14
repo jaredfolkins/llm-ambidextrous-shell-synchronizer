@@ -14,6 +14,10 @@ This project is released by [Jared Folkins](https://x.com/jf0lkins) under the [M
 
 **LLMASS** is a simple HTTP server written in Go that executes shell commands based on incoming HTTP `GET` requests. The server maintains a directory-based session system, issuing tickets per command, which allows quick chronological viewing of command output.
 
+## Demo
+
+![](assets/rce.gif)
+
 ## Features
 
 - **Secure Hash Check**: Requires >= 32-character `HASH` for request authentication.
